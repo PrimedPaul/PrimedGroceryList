@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// This file is intentionally minimal.  The real [AddItemScreen]
+/// implementation was moved into `shopping_list_screen.dart` so that
+/// the app would compile even if the separate file was lost during a
+/// power outage or repository sync.
+///
+/// Keeping this stub around prevents any stray imports from blowing up
+/// the build; it simply renders an empty box.
+
+@Deprecated('Use the AddItemScreen defined in shopping_list_screen.dart')
 class AddItemScreen extends StatefulWidget {
   const AddItemScreen({super.key});
 

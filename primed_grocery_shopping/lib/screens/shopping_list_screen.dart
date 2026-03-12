@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/shopping_list_model.dart';
-import '../models/shopping_item.dart';
-import 'add_item_screen.dart';
+// AddItemScreen is defined at the bottom of this file so we don't have
+// to depend on a separate file that may be missing.
+
 
 class ShoppingListScreen extends StatefulWidget {
   final ShoppingListModel model;
@@ -14,7 +15,6 @@ class ShoppingListScreen extends StatefulWidget {
 class _ShoppingListScreenState extends State<ShoppingListScreen> {
   // track which view is active; editing by default
   bool _editingView = true;
-  ShoppingItem? _lastDeletedItem;
   bool _isPlacingNewItem = false;
   String? _newItemId;
 
@@ -33,127 +33,140 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   void _onModel() => setState(() {});
 
   void _toggleView(bool editing) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
       _editingView = editing;
     });
   }
 
   Future<void> _deleteItem(ShoppingItem item) async {
-    setState(() {
-      _lastDeletedItem = item;
-      widget.model.remove(item.id);
-    });
-    final snackBar = SnackBar(
-      content: Text('Deleted ${item.name}'),
-      duration: const Duration(seconds: 4),
-      action: SnackBarAction(
-        label: 'Undo',
-        onPressed: () async {
-          if (_lastDeletedItem != null) {
-            await widget.model.add(_lastDeletedItem!.name);
-            setState(() => _lastDeletedItem = null);
-          }
-        },
+    final deletedIndex = widget.model.items.indexOf(item);
+    await widget.model.remove(item.id);
+    if (!mounted) return;
+
+    final deletedItem = item;
+    final deletedItemId = item.id;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Deleted ${item.name}'),
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await widget.model.restoreItem(deletedItem, index: deletedIndex);
+            if (!mounted) return;
+            if (_newItemId == deletedItemId) {
+              setState(() {
+                _newItemId = null;
+              });
+            }
+          },
+        ),
       ),
     );
-    ScaffoldMessenger.of(context).showSnackBar(snackBar).closed.then((reason) {
-      if (reason != SnackBarClosedReason.action) {
-        setState(() => _lastDeletedItem = null);
+  }
+
+  Widget _buildList() {
+    final items = widget.model.items;
+    return ReorderableListView.builder(
+      itemCount: items.length,
+      autoScrollerVelocityScalar: 50.0,
+      onReorder: (oldIndex, newIndex) =>
+          widget.model.reorder(oldIndex, newIndex),
+      itemBuilder: (context, index) =>
+          _buildItem(items[index], isReorderable: true, index: index),
+    );
+  }
+
+  Widget _buildItem(ShoppingItem item, {required bool isReorderable, required int index}) {
+    // Enable swipe actions in both modes: delete in edit mode, mark as bought in shopping mode
+    final dismissDirection = DismissDirection.endToStart;
+    final confirmDismiss = (DismissDirection direction) async {
+      if (!_editingView) {
+        await widget.model.toggleBought(item.id);
+        return false;
       }
-    });
+      return true;
+    };
+    final onDismissed =
+        _editingView ? (DismissDirection direction) => _deleteItem(item) : null;
+    final background = _editingView
+        ? Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            color: Colors.red,
+            child: const Icon(Icons.delete, color: Colors.white),
+          )
+        : Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            color: Colors.green,
+            child: const Icon(Icons.check, color: Colors.white),
+          );
+    final itemDecoration = _isPlacingNewItem && item.id == _newItemId
+        ? BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            border: Border.all(color: Colors.blue, width: 2),
+          )
+        : (!_editingView && item.bought)
+            ? BoxDecoration(
+                color: Colors.green.withOpacity(0.2),
+              )
+            : null;
+    final child = Container(
+      decoration: itemDecoration,
+      child: ListTile(
+        leading: null,
+        title: Text(item.name,
+            style: TextStyle(
+                decoration: (!_editingView && item.bought) ? TextDecoration.lineThrough : null,
+                color: item.bought ? Colors.black87 : null)),
+        trailing: isReorderable
+            ? ReorderableDragStartListener(
+                index: index,
+                child: const Icon(Icons.drag_handle),
+              )
+            : const Icon(Icons.drag_handle),
+      ),
+    );
+    return Dismissible(
+      key: ValueKey(item.id),
+      direction: dismissDirection,
+      confirmDismiss: confirmDismiss,
+      onDismissed: onDismissed,
+      background: background,
+      child: child,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final items = widget.model.items;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Shopping List')),
-      body: items.isEmpty
-          ? const Center(child: Text('No items yet — add one!'))
-          : _isPlacingNewItem
-              ? ReorderableListView.builder(
-                  itemCount: items.length,
-                  autoScrollerVelocityScalar: 50.0,
-                  onReorder: (oldIndex, newIndex) =>
-                      widget.model.reorder(oldIndex, newIndex),
-                  itemBuilder: (context, index) {
-                    final ShoppingItem item = items[index];
-                    return Dismissible(
-                      key: ValueKey(item.id),
-                      direction: item.id == _newItemId ? DismissDirection.none : DismissDirection.endToStart,
-                      onDismissed: (direction) => _deleteItem(item),
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        color: Colors.red,
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      child: Container(
-                        decoration: item.id == _newItemId
-                            ? BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
-                                border: Border.all(color: Colors.blue, width: 2),
-                              )
-                            : null,
-                        child: ListTile(
-                          leading: _editingView ? null : Checkbox(
-                            value: item.bought,
-                            onChanged: item.id == _newItemId
-                                ? null
-                                : (_) => widget.model.toggleBought(item.id),
-                          ),
-                          title: Text(item.name,
-                              style: TextStyle(
-                                  decoration: item.bought
-                                      ? TextDecoration.lineThrough
-                                      : null)),
-                          trailing: const Icon(Icons.drag_handle),
-                        ),
-                      ),
-                    );
-                  },
-                )
-              : ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final ShoppingItem item = items[index];
-                    return Dismissible(
-                      key: ValueKey(item.id),
-                      direction: _editingView ? (item.id == _newItemId ? DismissDirection.none : DismissDirection.endToStart) : DismissDirection.startToEnd,
-                      onDismissed: _editingView ? (direction) => _deleteItem(item) : (direction) => widget.model.toggleBought(item.id),
-                      background: _editingView
-                          ? Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              color: Colors.red,
-                              child: const Icon(Icons.delete, color: Colors.white),
-                            )
-                          : Container(
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.only(left: 20),
-                              color: Colors.green,
-                              child: const Icon(Icons.check, color: Colors.white),
-                            ),
-                      child: ListTile(
-                        leading: _editingView ? null : Checkbox(
-                          value: item.bought,
-                          onChanged: (_) => widget.model.toggleBought(item.id),
-                        ),
-                        title: Text(item.name,
-                            style: TextStyle(
-                                decoration: item.bought
-                                    ? TextDecoration.lineThrough
-                                    : null)),
-                        trailing: _editingView ? const Icon(Icons.drag_handle) : null,
-                      ),
-                    );
-                  },
-                ),
+    final listName = widget.model.activeList?.name ?? 'Shopping List';
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text(listName)),
+        body: items.isEmpty
+            ? const Center(child: Text('No items yet — add one!'))
+            : _buildList(),
       floatingActionButton: _editingView
           ? FloatingActionButton(
               onPressed: _isPlacingNewItem
-                  ? () => setState(() => _isPlacingNewItem = false)
+                  ? () {
+                      setState(() {
+                        _isPlacingNewItem = false;
+                        _newItemId = null;
+                      });
+                    }
                   : () async {
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
                       final name = await Navigator.of(context).push<String?>(
                         MaterialPageRoute(
                             builder: (_) => const AddItemScreen()),
@@ -171,6 +184,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                         if (currentIndex != middleIndex) {
                           await widget.model.reorder(currentIndex, middleIndex);
                         }
+                        // Auto-clear the highlight after a delay
+                        Future.delayed(const Duration(seconds: 5), () {
+                          if (mounted && _isPlacingNewItem) {
+                            setState(() {
+                              _isPlacingNewItem = false;
+                              _newItemId = null;
+                            });
+                          }
+                        });
                       }
                     },
               child: Icon(_isPlacingNewItem ? Icons.check : Icons.add),
@@ -187,6 +209,79 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               Icon(Icons.shopping_cart, semanticLabel: 'Shopping view'),
             ],
           ),
+        ),
+      ),
+      ),
+    );
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Helper screen for entering a new item name.  Placed in the same file so we
+// don't depend on an external asset that might be missing when the repo is
+// restored.
+
+class AddItemScreen extends StatefulWidget {
+  const AddItemScreen({super.key});
+
+  @override
+  State<AddItemScreen> createState() => _AddItemScreenState();
+}
+
+class _AddItemScreenState extends State<AddItemScreen> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    // select all text when the screen appears (even though the field is
+    // initially empty, this matches the pattern we used for naming lists)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final text = _controller.text.trim();
+    if (text.isNotEmpty) {
+      Navigator.of(context).pop(text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Add Item')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Item name',
+                hintText: 'e.g., Milk',
+              ),
+              onSubmitted: (_) => _save(),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _save,
+              child: const Text('Add'),
+            ),
+          ],
         ),
       ),
     );
