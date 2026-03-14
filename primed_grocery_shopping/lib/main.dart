@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'models/shopping_list_model.dart';
 import 'screens/home_screen.dart';
 
@@ -17,7 +18,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Primed Grocery',
-      theme: ThemeData(primarySwatch: Colors.green),
+      theme: AppTheme.theme,
       home: AppShell(model: model),
     );
   }
