@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/shopping_list_model.dart';
 // AddItemScreen is defined at the bottom of this file so we don't have
@@ -17,6 +18,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   bool _editingView = true;
   bool _isPlacingNewItem = false;
   String? _newItemId;
+  Timer? _snackBarTimer;
 
   @override
   void initState() {
@@ -26,6 +28,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   @override
   void dispose() {
+    _snackBarTimer?.cancel();
     widget.model.removeListener(_onModel);
     super.dispose();
   }
@@ -33,6 +36,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   void _onModel() => setState(() {});
 
   void _toggleView(bool editing) {
+    _snackBarTimer?.cancel();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
       _editingView = editing;
@@ -47,6 +51,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     final deletedItem = item;
     final deletedItemId = item.id;
 
+    _snackBarTimer?.cancel();
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -57,6 +62,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () async {
+            _snackBarTimer?.cancel();
             await widget.model.restoreItem(deletedItem, index: deletedIndex);
             if (!mounted) return;
             if (_newItemId == deletedItemId) {
@@ -68,6 +74,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         ),
       ),
     );
+    _snackBarTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    });
   }
 
   Widget _buildList() {
@@ -150,6 +159,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     return PopScope(
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) {
+          _snackBarTimer?.cancel();
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
       },
@@ -229,6 +239,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           });
                         }
                       : () async {
+                          _snackBarTimer?.cancel();
                           ScaffoldMessenger.of(context).hideCurrentSnackBar();
                           final name = await Navigator.of(context).push<String?>(
                             MaterialPageRoute(
