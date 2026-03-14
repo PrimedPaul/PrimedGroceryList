@@ -209,6 +209,16 @@ class ShoppingListModel extends ChangeNotifier {
     }
   }
 
+  Future<void> clearAllBought() async {
+    if (_activeListId == null) return;
+    final list = lists.firstWhere((l) => l.id == _activeListId);
+    for (final item in list.items) {
+      item.bought = false;
+    }
+    await save();
+    notifyListeners();
+  }
+
   Future<void> reorder(int oldIndex, int newIndex) async {
     if (_activeListId == null) return;
     final list = lists.firstWhere((l) => l.id == _activeListId);

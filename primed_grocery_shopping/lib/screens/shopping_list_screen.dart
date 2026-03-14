@@ -51,6 +51,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Deleted ${item.name}'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
         duration: const Duration(seconds: 3),
         action: SnackBarAction(
           label: 'Undo',
@@ -178,6 +180,41 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 ),
               ),
             ),
+            if (!_editingView)
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton(
+                  tooltip: 'Reset cart',
+                  onPressed: () async {
+                    final markedCount =
+                        widget.model.items.where((i) => i.bought).length;
+                    if (markedCount > 1) {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Reset cart?'),
+                          content: Text(
+                              'This will unmark all $markedCount checked items.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Reset'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true) return;
+                    }
+                    await widget.model.clearAllBought();
+                  },
+                  child: const Icon(Icons.refresh),
+                ),
+              ),
             if (_editingView)
               Positioned(
                 right: 16,
