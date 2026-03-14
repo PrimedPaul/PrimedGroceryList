@@ -153,64 +153,79 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: Text(listName)),
-        body: items.isEmpty
-            ? const Center(child: Text('No items yet — add one!'))
-            : _buildList(),
-      floatingActionButton: _editingView
-          ? FloatingActionButton(
-              onPressed: _isPlacingNewItem
-                  ? () {
-                      setState(() {
-                        _isPlacingNewItem = false;
-                        _newItemId = null;
-                      });
-                    }
-                  : () async {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      final name = await Navigator.of(context).push<String?>(
-                        MaterialPageRoute(
-                            builder: (_) => const AddItemScreen()),
-                      );
-                      if (name != null && name.isNotEmpty) {
-                        await widget.model.add(name);
-                        final newItem = widget.model.items.last;
-                        setState(() {
-                          _isPlacingNewItem = true;
-                          _newItemId = newItem.id;
-                        });
-                        // Move to middle
-                        final currentIndex = widget.model.items.length - 1;
-                        final middleIndex = widget.model.items.length ~/ 2;
-                        if (currentIndex != middleIndex) {
-                          await widget.model.reorder(currentIndex, middleIndex);
+        body: Stack(
+          children: [
+            items.isEmpty
+                ? const Center(child: Text('No items yet — add one!'))
+                : _buildList(),
+            Positioned(
+              left: 16,
+              bottom: 16,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(28),
+                clipBehavior: Clip.antiAlias,
+                child: ToggleButtons(
+                  isSelected: [_editingView, !_editingView],
+                  onPressed: (index) => _toggleView(index == 0),
+                  borderRadius: BorderRadius.circular(28),
+                  renderBorder: false,
+                  constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+                  children: const [
+                    Icon(Icons.edit, semanticLabel: 'Edit mode'),
+                    Icon(Icons.shopping_cart, semanticLabel: 'Shopping mode'),
+                  ],
+                ),
+              ),
+            ),
+            if (_editingView)
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton(
+                  tooltip: _isPlacingNewItem ? 'Done placing item' : 'Add item',
+                  onPressed: _isPlacingNewItem
+                      ? () {
+                          setState(() {
+                            _isPlacingNewItem = false;
+                            _newItemId = null;
+                          });
                         }
-                        // Auto-clear the highlight after a delay
-                        Future.delayed(const Duration(seconds: 5), () {
-                          if (mounted && _isPlacingNewItem) {
+                      : () async {
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          final name = await Navigator.of(context).push<String?>(
+                            MaterialPageRoute(
+                                builder: (_) => const AddItemScreen()),
+                          );
+                          if (name != null && name.isNotEmpty) {
+                            await widget.model.add(name);
+                            final newItem = widget.model.items.last;
                             setState(() {
-                              _isPlacingNewItem = false;
-                              _newItemId = null;
+                              _isPlacingNewItem = true;
+                              _newItemId = newItem.id;
+                            });
+                            // Move to middle
+                            final currentIndex = widget.model.items.length - 1;
+                            final middleIndex = widget.model.items.length ~/ 2;
+                            if (currentIndex != middleIndex) {
+                              await widget.model.reorder(currentIndex, middleIndex);
+                            }
+                            // Auto-clear the highlight after a delay
+                            Future.delayed(const Duration(seconds: 5), () {
+                              if (mounted && _isPlacingNewItem) {
+                                setState(() {
+                                  _isPlacingNewItem = false;
+                                  _newItemId = null;
+                                });
+                              }
                             });
                           }
-                        });
-                      }
-                    },
-              child: Icon(_isPlacingNewItem ? Icons.check : Icons.add),
-            )
-          : null,
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: ToggleButtons(
-            isSelected: [_editingView, !_editingView],
-            onPressed: (index) => _toggleView(index == 0),
-            children: const [
-              Icon(Icons.edit, semanticLabel: 'List editing view'),
-              Icon(Icons.shopping_cart, semanticLabel: 'Shopping view'),
-            ],
-          ),
+                        },
+                  child: Icon(_isPlacingNewItem ? Icons.check : Icons.add),
+                ),
+              ),
+          ],
         ),
-      ),
       ),
     );
   }
