@@ -1,0 +1,43 @@
+name: primed_grocery_list
+description: A simple shopping list manager app.
+publish_to: 'none'
+version: 0.1.0+1
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  shared_preferences: ^2.0.15
+  google_fonts: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  min_sdk_android: 21
+  # Adaptive icon for Android (API 26+): colored background + foreground image
+  adaptive_icon_background: "#4CAF50"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  # Fallback for older Android and all other platforms
+  image_path: "assets/icon/app_icon.png"
+  background_color: "#4CAF50"
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#4CAF50"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
