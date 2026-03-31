@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/shopping_list_model.dart';
 // AddItemScreen is defined at the bottom of this file so we don't have
 // to depend on a separate file that may be missing.
@@ -19,17 +21,27 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   bool _isPlacingNewItem = false;
   String? _newItemId;
   Timer? _snackBarTimer;
+  ui.Image? _strikethroughImage;
 
   @override
   void initState() {
     super.initState();
     widget.model.addListener(_onModel);
+    _loadStrikethroughImage();
+  }
+
+  Future<void> _loadStrikethroughImage() async {
+    final data = await rootBundle.load('assets/strikethrough.png');
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    final frame = await codec.getNextFrame();
+    if (mounted) setState(() => _strikethroughImage = frame.image);
   }
 
   @override
   void dispose() {
     _snackBarTimer?.cancel();
     widget.model.removeListener(_onModel);
+    _strikethroughImage?.dispose();
     super.dispose();
   }
 
@@ -92,82 +104,45 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   Widget _buildItem(ShoppingItem item, {required bool isReorderable, required int index}) {
-    // Enable swipe actions in both modes: delete in edit mode, mark as bought in shopping mode
-    final dismissDirection = DismissDirection.endToStart;
-    final confirmDismiss = (DismissDirection direction) async {
-      if (!_editingView) {
-        await widget.model.toggleBought(item.id);
-        return false;
-      }
-      return true;
-    };
-    final onDismissed =
-        _editingView ? (DismissDirection direction) => _deleteItem(item) : null;
-    final background = _editingView
-        ? Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: Colors.red,
-            child: const Icon(Icons.delete, color: Colors.white),
-          )
-        : Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: Colors.green,
-            child: const Icon(Icons.check, color: Colors.white),
-          );
+    if (!_editingView) {
+      return _ShoppingModeItem(
+        key: ValueKey(item.id),
+        item: item,
+        index: index,
+        strikethroughImage: _strikethroughImage,
+        onToggle: () => widget.model.toggleBought(item.id),
+      );
+    }
+
+    // Edit mode: swipe left to delete
     final itemDecoration = _isPlacingNewItem && item.id == _newItemId
         ? BoxDecoration(
-            color: Colors.blue.withOpacity(0.1),
+            color: Colors.blue.withValues(alpha: 0.1),
             border: Border.all(color: Colors.blue, width: 2),
           )
-        : (!_editingView && item.bought)
-            ? BoxDecoration(
-                color: Colors.green.withOpacity(0.2),
-              )
-            : null;
-    final isBoughtInShoppingMode = !_editingView && item.bought;
-    final child = Container(
-      decoration: itemDecoration,
-      child: Stack(
-        children: [
-          ListTile(
-            leading: null,
-            title: Text(
-              item.name,
-              style: isBoughtInShoppingMode
-                  ? const TextStyle(
-                      color: Colors.black38,
-                      fontWeight: FontWeight.w400,
-                    )
-                  : null,
-            ),
-            trailing: isReorderable
-                ? ReorderableDragStartListener(
-                    index: index,
-                    child: const Icon(Icons.drag_handle),
-                  )
-                : const Icon(Icons.drag_handle),
-          ),
-          if (isBoughtInShoppingMode)
-            Positioned.fill(
-              child: Center(
-                child: Container(
-                  height: 5,
-                  color: Colors.black.withOpacity(0.85),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
+        : null;
     return Dismissible(
       key: ValueKey(item.id),
-      direction: dismissDirection,
-      confirmDismiss: confirmDismiss,
-      onDismissed: onDismissed,
-      background: background,
-      child: child,
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) => _deleteItem(item),
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Colors.red,
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      child: Container(
+        decoration: itemDecoration,
+        child: ListTile(
+          title: Text(item.name),
+          trailing: isReorderable
+              ? ReorderableDragStartListener(
+                  index: index,
+                  child: const Icon(Icons.drag_handle),
+                )
+              : const Icon(Icons.drag_handle),
+        ),
+      ),
     );
   }
 
@@ -298,6 +273,211 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Paints the strikethrough brush-stroke image using BlendMode.multiply so
+// white areas are transparent against the item background and dark stroke
+// areas render black — without triggering a compositing save-layer.
+class _StrikethroughPainter extends CustomPainter {
+  final ui.Image image;
+  const _StrikethroughPainter(this.image);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..blendMode = BlendMode.multiply;
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_StrikethroughPainter old) => old.image != image;
+}
+
+// ---------------------------------------------------------------------------
+// Clips a widget between two fractional horizontal positions (0..1).
+class _TwoEdgeClipper extends CustomClipper<Rect> {
+  final double left;
+  final double right;
+  const _TwoEdgeClipper({required this.left, required this.right});
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(
+        size.width * left.clamp(0.0, 1.0),
+        0,
+        size.width * right.clamp(0.0, 1.0),
+        size.height,
+      );
+
+  @override
+  bool shouldReclip(_TwoEdgeClipper old) =>
+      old.left != left || old.right != right;
+}
+
+// ---------------------------------------------------------------------------
+// A shopping-mode list item that lets the user literally draw the strikethrough
+// line by swiping left (and erase it by swiping left again on a bought item).
+class _ShoppingModeItem extends StatefulWidget {
+  final ShoppingItem item;
+  final int index;
+  final ui.Image? strikethroughImage;
+  final VoidCallback onToggle;
+
+  const _ShoppingModeItem({
+    super.key,
+    required this.item,
+    required this.index,
+    required this.strikethroughImage,
+    required this.onToggle,
+  });
+
+  @override
+  State<_ShoppingModeItem> createState() => _ShoppingModeItemState();
+}
+
+class _ShoppingModeItemState extends State<_ShoppingModeItem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animController;
+  late Animation<double> _fingerAnim;
+
+  // Whether the user is currently dragging.
+  bool _dragging = false;
+
+  // Tracks the finger's fractional X position (0 = left edge, 1 = right edge)
+  // during a drag gesture and snap-back/snap-forward animations.
+  double _fingerFrac = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _fingerAnim = const AlwaysStoppedAnimation(1.0);
+  }
+
+  @override
+  void didUpdateWidget(_ShoppingModeItem old) {
+    super.didUpdateWidget(old);
+    // When bought changes externally (e.g., reset cart) and we're idle, reset.
+    if (old.item.bought != widget.item.bought &&
+        !_animController.isAnimating &&
+        !_dragging) {
+      setState(() => _fingerFrac = 1.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  double _localFrac(double globalX) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return 1.0;
+    final localX = box.globalToLocal(Offset(globalX, 0)).dx;
+    return (localX / box.size.width).clamp(0.0, 1.0);
+  }
+
+  void _animateTo(double target, {VoidCallback? onComplete}) {
+    _fingerAnim = Tween<double>(begin: _fingerFrac, end: target)
+        .animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _animController.forward(from: 0.0).then((_) {
+      if (mounted) {
+        setState(() => _fingerFrac = target);
+        onComplete?.call();
+      }
+    });
+  }
+
+  void _onDragStart(DragStartDetails details) {
+    _dragging = true;
+    if (_animController.isAnimating) {
+      _fingerFrac = _fingerAnim.value;
+      _animController.stop();
+    }
+    setState(() => _fingerFrac = _localFrac(details.globalPosition.dx));
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    setState(() => _fingerFrac = _localFrac(details.globalPosition.dx));
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    _dragging = false;
+    const threshold = 0.4;
+    if (_fingerFrac <= threshold) {
+      // Snap to fully drawn, then toggle bought and reset frac so the
+      // visual stays consistent after the state change.
+      _animateTo(0.0, onComplete: () {
+        widget.onToggle();
+        // After toggle, bought has flipped. Reset to 1.0 so the clip
+        // logic (which depends on the new bought value) shows the
+        // correct state: fully drawn or fully erased.
+        setState(() => _fingerFrac = 1.0);
+      });
+    } else {
+      _animateTo(1.0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      child: AnimatedBuilder(
+        animation: _animController,
+        builder: (context, _) {
+          final frac = _animController.isAnimating ? _fingerAnim.value : _fingerFrac;
+          final isBought = widget.item.bought;
+          // Drawing (not bought): line reveals right-to-left → clip [frac, 1.0]
+          //   frac=1.0 → empty, frac=0.0 → full line
+          // Erasing (bought): line hides right-to-left → clip [0.0, frac]
+          //   frac=1.0 → full line, frac=0.0 → empty
+          final clipLeft = isBought ? 0.0 : frac;
+          final clipRight = isBought ? frac : 1.0;
+          final hasVisibleLine = clipRight > clipLeft;
+          final showLine = widget.strikethroughImage != null && hasVisibleLine;
+          return Stack(
+            children: [
+              ListTile(
+                title: Text(
+                  widget.item.name,
+                  style: isBought
+                      ? const TextStyle(
+                          color: Colors.black38,
+                          fontWeight: FontWeight.w400,
+                        )
+                      : null,
+                ),
+                trailing: ReorderableDragStartListener(
+                  index: widget.index,
+                  child: const Icon(Icons.drag_handle),
+                ),
+              ),
+              if (showLine)
+                Positioned.fill(
+                  child: ClipRect(
+                    clipper: _TwoEdgeClipper(left: clipLeft, right: clipRight),
+                    child: CustomPaint(
+                      painter: _StrikethroughPainter(widget.strikethroughImage!),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helper screen for entering a new item name.  Placed in the same file so we
