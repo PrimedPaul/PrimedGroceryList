@@ -22,6 +22,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   String? _newItemId;
   Timer? _snackBarTimer;
   ui.Image? _strikethroughImage;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     _snackBarTimer?.cancel();
     widget.model.removeListener(_onModel);
     _strikethroughImage?.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -94,6 +96,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   Widget _buildList() {
     final items = widget.model.items;
     return ReorderableListView.builder(
+      scrollController: _scrollController,
+      padding: const EdgeInsets.only(bottom: 88),
       itemCount: items.length,
       autoScrollerVelocityScalar: 50.0,
       onReorder: (oldIndex, newIndex) =>
@@ -246,12 +250,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                               _isPlacingNewItem = true;
                               _newItemId = newItem.id;
                             });
-                            // Move to middle
-                            final currentIndex = widget.model.items.length - 1;
-                            final middleIndex = widget.model.items.length ~/ 2;
-                            if (currentIndex != middleIndex) {
-                              await widget.model.reorder(currentIndex, middleIndex);
-                            }
+                            // Only move to middle when the list overflows the screen.
+                            // Check after the frame so the scroll extent is up to date.
+                            WidgetsBinding.instance.addPostFrameCallback((_) async {
+                              if (!mounted) return;
+                              final overflows = _scrollController.hasClients &&
+                                  _scrollController.position.maxScrollExtent > 0;
+                              if (overflows) {
+                                final currentIndex = widget.model.items.length - 1;
+                                final middleIndex = widget.model.items.length ~/ 2;
+                                if (currentIndex != middleIndex) {
+                                  await widget.model.reorder(currentIndex, middleIndex);
+                                }
+                              }
+                            });
                             // Auto-clear the highlight after a delay
                             Future.delayed(const Duration(seconds: 5), () {
                               if (mounted && _isPlacingNewItem) {
