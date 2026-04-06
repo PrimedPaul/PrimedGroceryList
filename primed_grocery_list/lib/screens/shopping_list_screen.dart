@@ -94,16 +94,31 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   Widget _buildList() {
-    final items = widget.model.items;
+    final allItems = widget.model.items;
+    final visibleItems = _editingView
+        ? allItems
+        : allItems.where((i) => i.quantity > 0).toList();
     return ReorderableListView.builder(
       scrollController: _scrollController,
       padding: const EdgeInsets.only(bottom: 88),
-      itemCount: items.length,
+      itemCount: visibleItems.length,
       autoScrollerVelocityScalar: 50.0,
-      onReorder: (oldIndex, newIndex) =>
-          widget.model.reorder(oldIndex, newIndex),
+      onReorder: (oldIndex, newIndex) {
+        if (_editingView) {
+          widget.model.reorder(oldIndex, newIndex);
+        } else {
+          final modelOldIndex = allItems.indexOf(visibleItems[oldIndex]);
+          final int modelNewIndex;
+          if (newIndex >= visibleItems.length) {
+            modelNewIndex = allItems.indexOf(visibleItems.last) + 1;
+          } else {
+            modelNewIndex = allItems.indexOf(visibleItems[newIndex]);
+          }
+          widget.model.reorder(modelOldIndex, modelNewIndex);
+        }
+      },
       itemBuilder: (context, index) =>
-          _buildItem(items[index], isReorderable: true, index: index),
+          _buildItem(visibleItems[index], isReorderable: true, index: index),
     );
   }
 
@@ -139,12 +154,26 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         decoration: itemDecoration,
         child: ListTile(
           title: Text(item.name),
-          trailing: isReorderable
-              ? ReorderableDragStartListener(
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ItemQuantityCounter(
+                quantity: item.quantity,
+                onDecrement: () =>
+                    widget.model.updateQuantity(item.id, item.quantity - 1),
+                onIncrement: () =>
+                    widget.model.updateQuantity(item.id, item.quantity + 1),
+              ),
+              const SizedBox(width: 4),
+              if (isReorderable)
+                ReorderableDragStartListener(
                   index: index,
                   child: const Icon(Icons.drag_handle),
                 )
-              : const Icon(Icons.drag_handle),
+              else
+                const Icon(Icons.drag_handle),
+            ],
+          ),
         ),
       ),
     );
@@ -165,8 +194,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         appBar: AppBar(title: Text(listName)),
         body: Stack(
           children: [
-            items.isEmpty
-                ? const Center(child: Text('No items yet — add one!'))
+            (items.isEmpty || (!_editingView && items.every((i) => i.quantity == 0)))
+                ? Center(child: Text(items.isEmpty ? 'No items yet — add one!' : 'No items to shop for'))
                 : _buildList(),
             Positioned(
               left: 16,
@@ -469,9 +498,35 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                         )
                       : null,
                 ),
-                trailing: ReorderableDragStartListener(
-                  index: widget.index,
-                  child: const Icon(Icons.drag_handle),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Builder(builder: (context) {
+                      final primary = Theme.of(context).colorScheme.primary;
+                      return Container(
+                        constraints: const BoxConstraints(minWidth: 30),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${widget.item.quantity}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isBought ? Colors.black38 : primary,
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(width: 4),
+                    ReorderableDragStartListener(
+                      index: widget.index,
+                      child: const Icon(Icons.drag_handle),
+                    ),
+                  ],
                 ),
               ),
               if (showLine)
@@ -486,6 +541,71 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact quantity counter displayed in edit-mode list tiles.
+class _ItemQuantityCounter extends StatelessWidget {
+  final int quantity;
+  final VoidCallback onDecrement;
+  final VoidCallback onIncrement;
+
+  const _ItemQuantityCounter({
+    required this.quantity,
+    required this.onDecrement,
+    required this.onIncrement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _CounterBtn(icon: Icons.remove, onTap: quantity > 0 ? onDecrement : null),
+        Container(
+          constraints: const BoxConstraints(minWidth: 30),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$quantity',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: primary,
+            ),
+          ),
+        ),
+        _CounterBtn(icon: Icons.add, onTap: onIncrement),
+      ],
+    );
+  }
+}
+
+class _CounterBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _CounterBtn({required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = onTap == null
+        ? Theme.of(context).disabledColor
+        : Theme.of(context).iconTheme.color;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Icon(icon, size: 16, color: color),
       ),
     );
   }

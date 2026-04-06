@@ -9,19 +9,22 @@ class ShoppingItem {
   final String id;
   String name;
   bool bought;
+  int quantity;
 
-  ShoppingItem({required this.id, required this.name, this.bought = false});
+  ShoppingItem({required this.id, required this.name, this.bought = false, this.quantity = 1});
 
   factory ShoppingItem.fromJson(Map<String, dynamic> json) => ShoppingItem(
         id: json['id'] as String,
         name: json['name'] as String,
         bought: json['bought'] as bool? ?? false,
+        quantity: json['quantity'] as int? ?? 1,
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'bought': bought,
+        'quantity': quantity,
       };
 
   static List<ShoppingItem> listFromJson(String jsonStr) {
@@ -204,6 +207,17 @@ class ShoppingListModel extends ChangeNotifier {
     final idx = list.items.indexWhere((i) => i.id == id);
     if (idx != -1) {
       list.items[idx].bought = !list.items[idx].bought;
+      await save();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateQuantity(String id, int quantity) async {
+    if (_activeListId == null) return;
+    final list = lists.firstWhere((l) => l.id == _activeListId);
+    final idx = list.items.indexWhere((i) => i.id == id);
+    if (idx != -1) {
+      list.items[idx].quantity = quantity.clamp(0, 999);
       await save();
       notifyListeners();
     }
