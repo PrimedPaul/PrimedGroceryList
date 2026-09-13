@@ -55,7 +55,7 @@ class ShoppingItemList {
 class ShoppingItemListNotifier extends ChangeNotifier {
   static const _storageKey = 'shopping_lists_v1';
   static const _activeKey = 'shopping_lists_active';
-  List<ShoppingItemList> lists = []; 
+  List<ShoppingItemList> lists = [];
   String? _activeListId;
   int _idCounter = 0;
 
