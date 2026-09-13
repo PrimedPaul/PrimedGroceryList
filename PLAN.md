@@ -9,9 +9,16 @@
 The app has a solid foundation:
 - **Models**: `ShoppingItem` (id, name, bought, quantity), `ShoppingItemList` (id, name, items)
 - **State**: `provider` package — `MultiProvider` with `ShoppingItemListNotifier` + `ThemeNotifier`
-- **Storage**: `shared_preferences` with `shopping_lists_v1` key
+- **Storage**: `shared_preferences` with the alpha `shopping_lists_v1` key
 - **Screens**: Home, ShoppingList (edit + shopping mode), OpenList, NameList
-- **Features**: Create/open/delete lists, add/remove/reorder items, quantity counter, animated swipe-to-strikethrough, reset cart
+- **Features**: Create/open/delete lists, add/remove/reorder items, quantity units, tutorial, theme settings, completed-trip rating prompt, and animated shopping completion
+
+## Alpha Release
+
+- **Version**: `0.1.0-alpha.1+1`
+- **Supported distribution targets**: Android and iOS. Desktop and web builds remain usable, but do not show native rating prompts.
+- **Persistence contract**: `shopping_lists_v1` is the first alpha storage schema. Any future schema revision requires an explicit migration.
+- **CI**: GitHub Actions is pinned to Flutter `3.41.2` and runs `flutter pub get`, `flutter analyze`, and `flutter test` from `primed_grocery_list/`.
 
 ---
 
@@ -64,9 +71,10 @@ In Settings → Appearance:
 - Single config constant in `lib/config.dart` — **update `AppConfig.kBuyMeCoffeeUrl` with your username**
 
 ### ✅ 8. Feedback / App Rating Prompt
-- After 3 shopping sessions, show bottom sheet: *"Enjoying Primed Grocery? ⭐"*
+- After 3 completed shopping trips on Android/iOS, show bottom sheet: *"Enjoying Primed Grocery? ⭐"*
 - Options: "Rate Now" (native `in_app_review`) · "Maybe Later" · "Don't Ask Again"
-- Track count in `shared_preferences` (`shopping_sessions_count`, `rating_declined`)
+- "Maybe Later" defers the next prompt for 3 additional completed trips; "Don't Ask Again" suppresses all future prompts
+- Track state in `shared_preferences` (`shopping_sessions_count`, `rating_declined`, `rating_next_prompt_session`)
 
 ### ✅ 9. Application Tutorial (First Use)
 - Guided 6-page `PageView` bottom sheet on first launch
@@ -76,6 +84,8 @@ In Settings → Appearance:
 ---
 
 ## Further Down the Road
+
+AI-suggested reordering is deferred and must not be exposed in Settings until its behavior is implemented.
 
 | Feature | Notes |
 |---|---|

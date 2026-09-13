@@ -12,12 +12,14 @@
 
 - Keep changes focused and consistent with the existing Provider architecture. Use `context.watch<T>()` for state needed by `build` and `context.read<T>()` for event-handler mutations.
 - `ShoppingItemListNotifier` owns list and item mutations, JSON serialization, and `SharedPreferences` persistence. Mutations should persist before notifying listeners, and should update `lastUpdated` when list contents change.
-- `ThemeNotifier` owns the persisted theme seed color. `TutorialService`, `RatingService`, and `CompletionService` own only their respective preference flags and counters.
-- Preserve backward compatibility for stored data. The current list key is `shopping_lists_v1`; do not change it for routine features or refactors. A new schema version requires an explicit migration for existing data.
+- `ThemeNotifier` owns the persisted theme seed color. `TutorialService` and `RatingService` own only their respective preference flags and counters.
+- The alpha persistence contract uses the `shopping_lists_v1` key. Do not change it for routine features or refactors; a future schema version requires an explicit migration.
 - `ShoppingItem.unit` defaults to `qty` so older saved items continue to load. Preserve that fallback when changing serialization.
 - Keep async widget code lifecycle-safe: use `mounted` or `context.mounted` after an `await`, and defer dialogs or bottom sheets started during `initState` with `WidgetsBinding.instance.addPostFrameCallback`.
+- The rating flow is Android/iOS-only: count explicit completed shopping trips, defer "Maybe Later" by three more completions, and keep unsupported platforms free of native-review calls.
+- Display the installed app version through `package_info_plus`; do not hard-code release versions in widgets.
 - Prefer small, readable widgets and targeted rebuilds. Dispose timers, controllers, and other owned resources.
-- Add or update tests with behavior changes. Keep model/notifier tests in [`test/models/`](../primed_grocery_list/test/models/) and widget coverage in [`test/widget_test.dart`](../primed_grocery_list/test/widget_test.dart). Reset `SharedPreferences` with `setMockInitialValues({})` in tests.
+- Add or update tests with behavior changes. Keep model/notifier tests in [`test/models/`](../primed_grocery_list/test/models/), service tests in [`test/services/`](../primed_grocery_list/test/services/), and widget coverage in [`test/widget_test.dart`](../primed_grocery_list/test/widget_test.dart). Reset `SharedPreferences` with `setMockInitialValues({})` in tests.
 
 ## Validation
 
@@ -31,3 +33,5 @@ flutter test
 ```
 
 For a manual platform check, use `flutter run`. Do not modify generated `build/` output. Before release work, review the platform identifiers and signing configuration; they are still development defaults.
+
+GitHub Actions runs from `primed_grocery_list/` and is pinned to Flutter `3.41.2`; update the action SHA and Flutter version together in a deliberate maintenance PR.
