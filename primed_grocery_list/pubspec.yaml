@@ -1,7 +1,7 @@
 name: primed_grocery_list
 description: A simple shopping list manager app.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.0-alpha.1+1
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
