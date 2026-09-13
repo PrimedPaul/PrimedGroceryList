@@ -1,37 +1,42 @@
 import 'package:flutter/material.dart';
-import '../models/shopping_list_model.dart';
+import 'package:provider/provider.dart';
+import '../models/shopping_item_list_model.dart';
 import 'shopping_list_screen.dart';
 import 'name_shopping_list_screen.dart';
+import 'settings_screen.dart';
+import 'tutorial_sheet.dart';
 
-class OpenShoppingListScreen extends StatefulWidget {
-  final ShoppingListModel model;
-  const OpenShoppingListScreen({super.key, required this.model});
-
-  @override
-  State<OpenShoppingListScreen> createState() => _OpenShoppingListScreenState();
-}
-
-class _OpenShoppingListScreenState extends State<OpenShoppingListScreen> {
-  @override
-  void initState() {
-    super.initState();
-    widget.model.addListener(_onModel);
-  }
-
-  @override
-  void dispose() {
-    widget.model.removeListener(_onModel);
-    super.dispose();
-  }
-
-  void _onModel() => setState(() {});
+// OpenShoppingListScreen is now a StatelessWidget.
+// context.watch() in build() replaces the old addListener/removeListener
+// pattern — Provider automatically rebuilds the widget when the model changes.
+class OpenShoppingListScreen extends StatelessWidget {
+  const OpenShoppingListScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final lists = widget.model.lists;
+    // context.watch subscribes to changes so the list rebuilds when lists
+    // are added or deleted.
+    final model = context.watch<ShoppingItemListNotifier>();
+    final lists = model.lists;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Your Shopping Lists')),
+      appBar: AppBar(
+        title: const Text('Your Shopping Lists'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () async {
+              final showTutorial = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+              if (showTutorial == true && context.mounted) {
+                await showTutorialSheet(context);
+              }
+            },
+          ),
+        ],
+      ),
       body: lists.isEmpty
           ? Center(
               child: Column(
@@ -55,11 +60,13 @@ class _OpenShoppingListScreenState extends State<OpenShoppingListScreen> {
                         ),
                       );
                       if (name != null && context.mounted) {
-                        widget.model.createNewList(name);
-                        await widget.model.save();
+                        // context.read in a callback — no rebuild subscription needed.
+                        final m = context.read<ShoppingItemListNotifier>();
+                        m.createNewList(name);
+                        await m.save();
                         if (context.mounted) {
                           Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => ShoppingListScreen(model: widget.model),
+                            builder: (_) => const ShoppingListScreen(),
                           ));
                         }
                       }
@@ -73,10 +80,13 @@ class _OpenShoppingListScreenState extends State<OpenShoppingListScreen> {
               itemBuilder: (context, index) {
                 final list = lists[index];
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: ListTile(
-                    title: Text(list.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${list.items.length} item${list.items.length != 1 ? 's' : ''}'),
+                    title: Text(list.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(
+                        '${list.items.length} item${list.items.length != 1 ? 's' : ''}'),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete),
                       onPressed: () async {
@@ -84,7 +94,8 @@ class _OpenShoppingListScreenState extends State<OpenShoppingListScreen> {
                           context: context,
                           builder: (context) => AlertDialog(
                             title: const Text('Delete List?'),
-                            content: Text('Are you sure you want to delete "${list.name}"?'),
+                            content: Text(
+                                'Are you sure you want to delete "${list.name}"?'),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(context, false),
@@ -97,16 +108,20 @@ class _OpenShoppingListScreenState extends State<OpenShoppingListScreen> {
                             ],
                           ),
                         );
-                        if (confirm == true && mounted) {
-                          await widget.model.deleteList(list.id);
+                        if (confirm == true && context.mounted) {
+                          await context
+                              .read<ShoppingItemListNotifier>()
+                              .deleteList(list.id);
                         }
                       },
                     ),
                     onTap: () async {
-                      await widget.model.setActiveList(list.id);
+                      await context
+                          .read<ShoppingItemListNotifier>()
+                          .setActiveList(list.id);
                       if (context.mounted) {
                         Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => ShoppingListScreen(model: widget.model),
+                          builder: (_) => const ShoppingListScreen(),
                         ));
                       }
                     },

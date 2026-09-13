@@ -2,14 +2,21 @@ import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/shopping_list_model.dart';
+import 'package:provider/provider.dart';
+import '../models/shopping_item_list_model.dart';
+import '../models/shopping_item_model.dart';
+import '../services/rating_service.dart';
+import 'settings_screen.dart';
+import 'tutorial_sheet.dart';
 // AddItemScreen is defined at the bottom of this file so we don't have
 // to depend on a separate file that may be missing.
 
-
+// ShoppingListScreen stays a StatefulWidget because it owns several pieces of
+// local UI state (_editingView, _isPlacingNewItem, _snackBarTimer, etc.).
+// The model is accessed via Provider instead of being passed as a constructor
+// argument, removing the need for addListener / removeListener.
 class ShoppingListScreen extends StatefulWidget {
-  final ShoppingListModel model;
-  const ShoppingListScreen({super.key, required this.model});
+  const ShoppingListScreen({super.key});
 
   @override
   State<ShoppingListScreen> createState() => _ShoppingListScreenState();
@@ -19,6 +26,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   // track which view is active; editing by default
   bool _editingView = true;
   bool _isPlacingNewItem = false;
+  // true while the shopping-complete celebration animation is playing
+  bool _showCompletionOverlay = false;
   String? _newItemId;
   Timer? _snackBarTimer;
   ui.Image? _strikethroughImage;
@@ -27,7 +36,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   @override
   void initState() {
     super.initState();
-    widget.model.addListener(_onModel);
+    // No addListener needed — context.watch() in build() handles reactivity.
     _loadStrikethroughImage();
   }
 
@@ -41,15 +50,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   @override
   void dispose() {
     _snackBarTimer?.cancel();
-    widget.model.removeListener(_onModel);
     _strikethroughImage?.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _onModel() => setState(() {});
-
-  void _toggleView(bool editing) {
+  Future<void> _toggleView(bool editing) async {
+    if (_editingView == editing) return;
     _snackBarTimer?.cancel();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
@@ -57,9 +64,131 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     });
   }
 
+  /// Shows a bottom sheet asking the user to rate the app.
+  Future<void> _showRatingPrompt() async {
+    final choice = await showModalBottomSheet<_RatingChoice>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Enjoying Primed Grocery? ⭐',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'A quick rating helps others find the app!',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              alignment: WrapAlignment.spaceEvenly,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(ctx).pop(_RatingChoice.declineForever),
+                  child: const Text("Don't Ask Again"),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(_RatingChoice.later),
+                  child: const Text('Maybe Later'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(_RatingChoice.rateNow),
+                  child: const Text('Rate Now ⭐'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    // Swiping the sheet away or pressing back counts as "Maybe Later".
+    switch (choice ?? _RatingChoice.later) {
+      case _RatingChoice.rateNow:
+        await RatingService.requestReview();
+      case _RatingChoice.later:
+        await RatingService.deferReview();
+      case _RatingChoice.declineForever:
+        await RatingService.declineForever();
+    }
+  }
+
+  /// Resets all bought flags without exiting shopping mode.
+  /// Extracted so it can be called from the Complete Shopping FAB long-press.
+  Future<void> _resetCart() async {
+    final m = context.read<ShoppingItemListNotifier>();
+    final markedCount = m.items.where((i) => i.bought).length;
+    if (markedCount > 1) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reset cart?'),
+          content: Text('This will unmark all $markedCount checked items.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Reset'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await m.clearAllBought();
+  }
+
+  /// Called when the user taps the "Complete Shopping" FAB.
+  Future<void> _handleCompleteShoppingTap() async {
+    setState(() => _showCompletionOverlay = true);
+  }
+
+  /// Called by _CompletionOverlay when its animation finishes.
+  Future<void> _onCompletionAnimationDone() async {
+    if (!mounted) return;
+    setState(() => _showCompletionOverlay = false);
+    final m = context.read<ShoppingItemListNotifier>();
+    await m.clearAllBought();
+    if (!mounted) return;
+    await _toggleView(true);
+    final shouldPrompt = await RatingService.recordCompletedShoppingSession();
+    if (shouldPrompt && mounted) _showRatingPrompt();
+  }
+
+  /// Formats a [DateTime] as a short human-readable age string.
+  /// e.g. "just now", "5 min ago", "2 hr ago", "12/4/2025"
+  String _formatLastUpdated(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return '$m min ago';
+    }
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return '$h hr ago';
+    }
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+
   Future<void> _deleteItem(ShoppingItem item) async {
-    final deletedIndex = widget.model.items.indexOf(item);
-    await widget.model.remove(item.id);
+    // Use context.read for mutations — no rebuild subscription needed here.
+    final model = context.read<ShoppingItemListNotifier>();
+    final deletedIndex = model.items.indexOf(item);
+    await model.remove(item.id);
     if (!mounted) return;
 
     final deletedItem = item;
@@ -77,7 +206,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           label: 'Undo',
           onPressed: () async {
             _snackBarTimer?.cancel();
-            await widget.model.restoreItem(deletedItem, index: deletedIndex);
+            await context
+                .read<ShoppingItemListNotifier>()
+                .restoreItem(deletedItem, index: deletedIndex);
             if (!mounted) return;
             if (_newItemId == deletedItemId) {
               setState(() {
@@ -94,7 +225,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   Widget _buildList() {
-    final allItems = widget.model.items;
+    final model = context.read<ShoppingItemListNotifier>();
+    final allItems = model.items;
     final visibleItems = _editingView
         ? allItems
         : allItems.where((i) => i.quantity > 0).toList();
@@ -103,9 +235,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       padding: const EdgeInsets.only(bottom: 88),
       itemCount: visibleItems.length,
       autoScrollerVelocityScalar: 50.0,
+      // ignore: deprecated_member_use
       onReorder: (oldIndex, newIndex) {
         if (_editingView) {
-          widget.model.reorder(oldIndex, newIndex);
+          model.reorder(oldIndex, newIndex);
         } else {
           final modelOldIndex = allItems.indexOf(visibleItems[oldIndex]);
           final int modelNewIndex;
@@ -114,22 +247,23 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           } else {
             modelNewIndex = allItems.indexOf(visibleItems[newIndex]);
           }
-          widget.model.reorder(modelOldIndex, modelNewIndex);
+          model.reorder(modelOldIndex, modelNewIndex);
         }
       },
-      itemBuilder: (context, index) =>
-          _buildItem(visibleItems[index], isReorderable: true, index: index),
+      itemBuilder: (context, index) => _buildItem(model, visibleItems[index],
+          isReorderable: true, index: index),
     );
   }
 
-  Widget _buildItem(ShoppingItem item, {required bool isReorderable, required int index}) {
+  Widget _buildItem(ShoppingItemListNotifier model, ShoppingItem item,
+      {required bool isReorderable, required int index}) {
     if (!_editingView) {
       return _ShoppingModeItem(
         key: ValueKey(item.id),
         item: item,
         index: index,
         strikethroughImage: _strikethroughImage,
-        onToggle: () => widget.model.toggleBought(item.id),
+        onToggle: () => model.toggleBought(item.id),
       );
     }
 
@@ -159,10 +293,16 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
             children: [
               _ItemQuantityCounter(
                 quantity: item.quantity,
-                onDecrement: () =>
-                    widget.model.updateQuantity(item.id, item.quantity - 1),
-                onIncrement: () =>
-                    widget.model.updateQuantity(item.id, item.quantity + 1),
+                unit: item.unit,
+                onDecrement: () => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateQuantity(item.id, item.quantity - 1),
+                onIncrement: () => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateQuantity(item.id, item.quantity + 1),
+                onUnitChanged: (newUnit) => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateUnit(item.id, newUnit),
               ),
               const SizedBox(width: 4),
               if (isReorderable)
@@ -181,8 +321,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.model.items;
-    final listName = widget.model.activeList?.name ?? 'Shopping List';
+    // context.watch triggers a rebuild whenever the model notifies listeners.
+    final model = context.watch<ShoppingItemListNotifier>();
+    final items = model.items;
+    final listName = model.activeList?.name ?? 'Shopping List';
     return PopScope(
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) {
@@ -191,11 +333,31 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(listName)),
+        appBar: AppBar(
+          title: Text(listName),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: () async {
+                final showTutorial = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+                if (showTutorial == true && context.mounted) {
+                  await showTutorialSheet(context);
+                }
+              },
+            ),
+          ],
+        ),
         body: Stack(
           children: [
-            (items.isEmpty || (!_editingView && items.every((i) => i.quantity == 0)))
-                ? Center(child: Text(items.isEmpty ? 'No items yet — add one!' : 'No items to shop for'))
+            (items.isEmpty ||
+                    (!_editingView && items.every((i) => i.quantity == 0)))
+                ? Center(
+                    child: Text(items.isEmpty
+                        ? 'No items yet — add one!'
+                        : 'No items to shop for'))
                 : _buildList(),
             Positioned(
               left: 16,
@@ -209,7 +371,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   onPressed: (index) => _toggleView(index == 0),
                   borderRadius: BorderRadius.circular(28),
                   renderBorder: false,
-                  constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+                  constraints:
+                      const BoxConstraints(minWidth: 56, minHeight: 56),
                   children: const [
                     Icon(Icons.edit, semanticLabel: 'Edit mode'),
                     Icon(Icons.shopping_cart, semanticLabel: 'Shopping mode'),
@@ -217,39 +380,37 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                 ),
               ),
             ),
+            // "Last updated" status — visible in edit mode only, sits in the
+            // padding space above the FABs so it never overlaps list items.
+            if (_editingView && model.activeList?.lastUpdated != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 76,
+                child: IgnorePointer(
+                  child: Center(
+                    child: Text(
+                      'Last updated ${_formatLastUpdated(model.activeList!.lastUpdated!)}',
+                      style:
+                          const TextStyle(color: Colors.black38, fontSize: 11),
+                    ),
+                  ),
+                ),
+              ),
+            // "Complete Shopping" FAB — replaces the old reset-cart button.
+            // Long-press to access the reset-cart action instead.
             if (!_editingView)
               Positioned(
                 right: 16,
                 bottom: 16,
-                child: FloatingActionButton(
-                  tooltip: 'Reset cart',
-                  onPressed: () async {
-                    final markedCount =
-                        widget.model.items.where((i) => i.bought).length;
-                    if (markedCount > 1) {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Reset cart?'),
-                          content: Text(
-                              'This will unmark all $markedCount checked items.'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Reset'),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (confirmed != true) return;
-                    }
-                    await widget.model.clearAllBought();
-                  },
-                  child: const Icon(Icons.refresh),
+                // GestureDetector wraps the FAB to capture long-press for reset.
+                child: GestureDetector(
+                  onLongPress: _resetCart,
+                  child: FloatingActionButton(
+                    tooltip: 'Complete Shopping\n(long-press to reset cart)',
+                    onPressed: _handleCompleteShoppingTap,
+                    child: const Icon(Icons.check_circle_outline),
+                  ),
                 ),
               ),
             if (_editingView)
@@ -268,28 +429,39 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                       : () async {
                           _snackBarTimer?.cancel();
                           ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          final name = await Navigator.of(context).push<String?>(
+                          // Capture the model before the async gap (Navigator.push await).
+                          final m = context.read<ShoppingItemListNotifier>();
+                          final name =
+                              await Navigator.of(context).push<String?>(
                             MaterialPageRoute(
                                 builder: (_) => const AddItemScreen()),
                           );
                           if (name != null && name.isNotEmpty) {
-                            await widget.model.add(name);
-                            final newItem = widget.model.items.last;
+                            await m.add(name);
+                            if (!mounted) return;
+                            final newItem = m.items.last;
                             setState(() {
                               _isPlacingNewItem = true;
                               _newItemId = newItem.id;
                             });
                             // Only move to middle when the list overflows the screen.
                             // Check after the frame so the scroll extent is up to date.
-                            WidgetsBinding.instance.addPostFrameCallback((_) async {
+                            WidgetsBinding.instance
+                                .addPostFrameCallback((_) async {
                               if (!mounted) return;
                               final overflows = _scrollController.hasClients &&
-                                  _scrollController.position.maxScrollExtent > 0;
+                                  _scrollController.position.maxScrollExtent >
+                                      0;
                               if (overflows) {
-                                final currentIndex = widget.model.items.length - 1;
-                                final middleIndex = widget.model.items.length ~/ 2;
+                                // context.read is safe here — addPostFrameCallback
+                                // runs synchronously within the same frame boundary.
+                                final notifier =
+                                    context.read<ShoppingItemListNotifier>();
+                                final currentIndex = notifier.items.length - 1;
+                                final middleIndex = notifier.items.length ~/ 2;
                                 if (currentIndex != middleIndex) {
-                                  await widget.model.reorder(currentIndex, middleIndex);
+                                  await notifier.reorder(
+                                      currentIndex, middleIndex);
                                 }
                               }
                             });
@@ -307,13 +479,20 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   child: Icon(_isPlacingNewItem ? Icons.check : Icons.add),
                 ),
               ),
+            // Completion celebration overlay — shown on top of everything when
+            // the user taps "Complete Shopping".
+            if (_showCompletionOverlay)
+              Positioned.fill(
+                child: _CompletionOverlay(
+                  onComplete: _onCompletionAnimationDone,
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Paints the strikethrough brush-stroke image using BlendMode.multiply so
@@ -426,8 +605,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
   }
 
   void _animateTo(double target, {VoidCallback? onComplete}) {
-    _fingerAnim = Tween<double>(begin: _fingerFrac, end: target)
-        .animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _fingerAnim = Tween<double>(begin: _fingerFrac, end: target).animate(
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward(from: 0.0).then((_) {
       if (mounted) {
         setState(() => _fingerFrac = target);
@@ -476,7 +655,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
       child: AnimatedBuilder(
         animation: _animController,
         builder: (context, _) {
-          final frac = _animController.isAnimating ? _fingerAnim.value : _fingerFrac;
+          final frac =
+              _animController.isAnimating ? _fingerAnim.value : _fingerFrac;
           final isBought = widget.item.bought;
           // Drawing (not bought): line reveals right-to-left → clip [frac, 1.0]
           //   frac=1.0 → empty, frac=0.0 → full line
@@ -503,22 +683,51 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                   children: [
                     Builder(builder: (context) {
                       final primary = Theme.of(context).colorScheme.primary;
+                      final showUnit = widget.item.unit != 'qty';
                       return Container(
                         constraints: const BoxConstraints(minWidth: 30),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(
-                          '${widget.item.quantity}',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: isBought ? Colors.black38 : primary,
-                          ),
-                        ),
+                        // Show unit label below the number when unit is not 'qty'.
+                        child: showUnit
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${widget.item.quantity}',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          isBought ? Colors.black38 : primary,
+                                    ),
+                                  ),
+                                  Text(
+                                    widget.item.unit,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                      color:
+                                          isBought ? Colors.black38 : primary,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                '${widget.item.quantity}',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: isBought ? Colors.black38 : primary,
+                                ),
+                              ),
                       );
                     }),
                     const SizedBox(width: 4),
@@ -534,7 +743,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                   child: ClipRect(
                     clipper: _TwoEdgeClipper(left: clipLeft, right: clipRight),
                     child: CustomPaint(
-                      painter: _StrikethroughPainter(widget.strikethroughImage!),
+                      painter:
+                          _StrikethroughPainter(widget.strikethroughImage!),
                     ),
                   ),
                 ),
@@ -548,39 +758,119 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
 
 // ---------------------------------------------------------------------------
 // Compact quantity counter displayed in edit-mode list tiles.
+// Long-pressing the number badge opens a bottom sheet to pick a unit.
 class _ItemQuantityCounter extends StatelessWidget {
   final int quantity;
+  final String unit;
   final VoidCallback onDecrement;
   final VoidCallback onIncrement;
+  // Called when the user picks a new unit from the bottom sheet.
+  final ValueChanged<String> onUnitChanged;
 
   const _ItemQuantityCounter({
     required this.quantity,
+    required this.unit,
     required this.onDecrement,
     required this.onIncrement,
+    required this.onUnitChanged,
   });
+
+  /// Opens a bottom sheet with a grid of unit chips to choose from.
+  void _showUnitPicker(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Select unit',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              // Wrap lays chips in rows, wrapping to the next line as needed.
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: kSupportedUnits.map((u) {
+                  return ChoiceChip(
+                    label: Text(u),
+                    // Highlight the currently selected unit.
+                    selected: u == unit,
+                    onSelected: (_) {
+                      onUnitChanged(u);
+                      Navigator.of(sheetContext).pop();
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final showUnit = unit != 'qty';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _CounterBtn(icon: Icons.remove, onTap: quantity > 0 ? onDecrement : null),
-        Container(
-          constraints: const BoxConstraints(minWidth: 30),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            '$quantity',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: primary,
+        _CounterBtn(
+            icon: Icons.remove, onTap: quantity > 0 ? onDecrement : null),
+        // GestureDetector wraps the badge so long-press opens the unit picker.
+        GestureDetector(
+          onLongPress: () => _showUnitPicker(context),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 30),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
             ),
+            // Show unit label below the number when unit is not 'qty'.
+            child: showUnit
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$quantity',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: primary,
+                        ),
+                      ),
+                      Text(
+                        unit,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: primary,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    '$quantity',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primary,
+                    ),
+                  ),
           ),
         ),
         _CounterBtn(icon: Icons.add, onTap: onIncrement),
@@ -606,6 +896,139 @@ class _CounterBtn extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Icon(icon, size: 16, color: color),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Full-screen celebration overlay shown when the user completes a shopping trip.
+// The animation starts automatically when the widget is inserted into the tree,
+// and [onComplete] is called when the fade-out finishes so the caller can
+// clean up state and reset the list.
+class _CompletionOverlay extends StatefulWidget {
+  const _CompletionOverlay({required this.onComplete});
+
+  /// Called once when the animation finishes.
+  final VoidCallback onComplete;
+
+  @override
+  State<_CompletionOverlay> createState() => _CompletionOverlayState();
+}
+
+class _CompletionOverlayState extends State<_CompletionOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  // Scale: pop from 0 → 1.15 → 1.0, then hold, then fade out.
+  late final Animation<double> _scale;
+  // Opacity: fully visible for the first 60 % of the animation, then fade.
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..addStatusListener((status) {
+        // Fire onComplete as soon as the animation reaches the end.
+        if (status == AnimationStatus.completed && mounted) {
+          widget.onComplete();
+        }
+      });
+
+    _scale = TweenSequence<double>([
+      // Pop in with slight overshoot for a lively feel.
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.15)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 28,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.15, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 12,
+      ),
+      // Hold at full size before fading.
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 30),
+      // Keep size while the opacity animation fades the overlay out.
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 30),
+    ]).animate(_ctrl);
+
+    _opacity = TweenSequence<double>([
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 60),
+      TweenSequenceItem(
+        tween:
+            Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 40,
+      ),
+    ]).animate(_ctrl);
+
+    // Start immediately when this widget first appears.
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) => Opacity(
+        opacity: _opacity.value,
+        child: Container(
+          // Semi-transparent backdrop dims the list behind the card.
+          color: Colors.black54,
+          child: Center(
+            child: ScaleTransition(
+              scale: _scale,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 40, vertical: 32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 80,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Shopping complete!',
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Great trip! 🛒',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.black54,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -681,3 +1104,5 @@ class _AddItemScreenState extends State<AddItemScreen> {
     );
   }
 }
+
+enum _RatingChoice { rateNow, later, declineForever }

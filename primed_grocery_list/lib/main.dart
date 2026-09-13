@@ -1,42 +1,41 @@
 import 'package:flutter/material.dart';
-import 'app_theme.dart';
-import 'models/shopping_list_model.dart';
+import 'package:provider/provider.dart';
+import 'models/shopping_item_list_model.dart';
+import 'models/theme_notifier.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final model = ShoppingListModel();
-  await model.load();
-  runApp(MyApp(model: model));
+
+  // Create both models and load their saved data before the UI starts.
+  final groceryModel = ShoppingItemListNotifier();
+  final themeNotifier = ThemeNotifier();
+  await Future.wait([groceryModel.load(), themeNotifier.load()]);
+
+  // MultiProvider lets us supply multiple notifiers to the widget tree so any
+  // screen can access them via context.watch / context.read.
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<ShoppingItemListNotifier>.value(value: groceryModel),
+        ChangeNotifierProvider<ThemeNotifier>.value(value: themeNotifier),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
-  final ShoppingListModel model;
-  const MyApp({super.key, required this.model});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Watch ThemeNotifier so the whole app re-themes when the user changes colour.
+    final theme = context.watch<ThemeNotifier>().themeData;
     return MaterialApp(
       title: 'Primed Grocery',
-      theme: AppTheme.theme,
-      home: AppShell(model: model),
-    );
-  }
-}
-
-class AppShell extends StatefulWidget {
-  final ShoppingListModel model;
-  const AppShell({super.key, required this.model});
-
-  @override
-  State<AppShell> createState() => _AppShellState();
-}
-
-class _AppShellState extends State<AppShell> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: HomeScreen(model: widget.model),
+      theme: theme,
+      home: const HomeScreen(),
     );
   }
 }
