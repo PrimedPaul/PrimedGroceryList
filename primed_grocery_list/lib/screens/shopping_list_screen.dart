@@ -5,12 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/shopping_item_list_model.dart';
 import '../models/shopping_item_model.dart';
-import '../services/completion_service.dart';
 import '../services/rating_service.dart';
 import 'settings_screen.dart';
+import 'tutorial_sheet.dart';
 // AddItemScreen is defined at the bottom of this file so we don't have
 // to depend on a separate file that may be missing.
-
 
 // ShoppingListScreen stays a StatefulWidget because it owns several pieces of
 // local UI state (_editingView, _isPlacingNewItem, _snackBarTimer, etc.).
@@ -57,20 +56,12 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   Future<void> _toggleView(bool editing) async {
+    if (_editingView == editing) return;
     _snackBarTimer?.cancel();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
       _editingView = editing;
     });
-
-    // When the user switches TO shopping mode, record the session.
-    // If the rating threshold is reached, show the prompt.
-    if (!editing) {
-      final shouldPrompt = await RatingService.recordShoppingSession();
-      if (shouldPrompt && mounted) {
-        _showRatingPrompt();
-      }
-    }
   }
 
   /// Shows a bottom sheet asking the user to rate the app.
@@ -96,8 +87,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            Wrap(
+              alignment: WrapAlignment.spaceEvenly,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 TextButton(
                   onPressed: () async {
@@ -107,7 +100,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   child: const Text("Don't Ask Again"),
                 ),
                 TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await RatingService.deferReview();
+                  },
                   child: const Text('Maybe Later'),
                 ),
                 ElevatedButton(
@@ -154,48 +150,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     await m.clearAllBought();
   }
 
-  /// Shows the first-time AI re-ordering prompt and saves the user's choice.
-  /// Called at most once — subsequent taps skip straight to the animation.
-  Future<void> _showAiReorderPrompt() async {
-    // Mark as shown first so a crash during the dialog doesn't re-show it.
-    await CompletionService.markAiReorderPromptShown();
-    if (!mounted) return;
-    final enabled = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Smart list re-ordering 🛒'),
-        content: const Text(
-          'After each shopping trip, Primed can automatically re-order your list '
-          'based on how you typically shop.\n\n'
-          'You can always change this in Settings → Shopping.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('No thanks'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Enable'),
-          ),
-        ],
-      ),
-    );
-    if (enabled == true) {
-      await CompletionService.setAiReorderEnabled(true);
-    }
-  }
-
   /// Called when the user taps the "Complete Shopping" FAB.
   Future<void> _handleCompleteShoppingTap() async {
-    // On the very first completion, ask about AI re-ordering.
-    final promptShown = await CompletionService.hasShownAiReorderPrompt();
-    if (!promptShown && mounted) {
-      await _showAiReorderPrompt();
-    }
-    if (!mounted) return;
-    // Show the celebration overlay; _onCompletionAnimationDone is called when it finishes.
     setState(() => _showCompletionOverlay = true);
   }
 
@@ -205,7 +161,10 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     setState(() => _showCompletionOverlay = false);
     final m = context.read<ShoppingItemListNotifier>();
     await m.clearAllBought();
-    if (mounted) _toggleView(true);
+    if (!mounted) return;
+    await _toggleView(true);
+    final shouldPrompt = await RatingService.recordCompletedShoppingSession();
+    if (shouldPrompt && mounted) _showRatingPrompt();
   }
 
   /// Formats a [DateTime] as a short human-readable age string.
@@ -246,7 +205,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           label: 'Undo',
           onPressed: () async {
             _snackBarTimer?.cancel();
-            await context.read<ShoppingItemListNotifier>().restoreItem(deletedItem, index: deletedIndex);
+            await context
+                .read<ShoppingItemListNotifier>()
+                .restoreItem(deletedItem, index: deletedIndex);
             if (!mounted) return;
             if (_newItemId == deletedItemId) {
               setState(() {
@@ -273,6 +234,7 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
       padding: const EdgeInsets.only(bottom: 88),
       itemCount: visibleItems.length,
       autoScrollerVelocityScalar: 50.0,
+      // ignore: deprecated_member_use
       onReorder: (oldIndex, newIndex) {
         if (_editingView) {
           model.reorder(oldIndex, newIndex);
@@ -287,12 +249,13 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           model.reorder(modelOldIndex, modelNewIndex);
         }
       },
-      itemBuilder: (context, index) =>
-          _buildItem(model, visibleItems[index], isReorderable: true, index: index),
+      itemBuilder: (context, index) => _buildItem(model, visibleItems[index],
+          isReorderable: true, index: index),
     );
   }
 
-  Widget _buildItem(ShoppingItemListNotifier model, ShoppingItem item, {required bool isReorderable, required int index}) {
+  Widget _buildItem(ShoppingItemListNotifier model, ShoppingItem item,
+      {required bool isReorderable, required int index}) {
     if (!_editingView) {
       return _ShoppingModeItem(
         key: ValueKey(item.id),
@@ -330,12 +293,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               _ItemQuantityCounter(
                 quantity: item.quantity,
                 unit: item.unit,
-                onDecrement: () =>
-                    context.read<ShoppingItemListNotifier>().updateQuantity(item.id, item.quantity - 1),
-                onIncrement: () =>
-                    context.read<ShoppingItemListNotifier>().updateQuantity(item.id, item.quantity + 1),
-                onUnitChanged: (newUnit) =>
-                    context.read<ShoppingItemListNotifier>().updateUnit(item.id, newUnit),
+                onDecrement: () => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateQuantity(item.id, item.quantity - 1),
+                onIncrement: () => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateQuantity(item.id, item.quantity + 1),
+                onUnitChanged: (newUnit) => context
+                    .read<ShoppingItemListNotifier>()
+                    .updateUnit(item.id, newUnit),
               ),
               const SizedBox(width: 4),
               if (isReorderable)
@@ -372,16 +338,25 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'Settings',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
+              onPressed: () async {
+                final showTutorial = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+                if (showTutorial == true && context.mounted) {
+                  await showTutorialSheet(context);
+                }
+              },
             ),
           ],
         ),
         body: Stack(
           children: [
-            (items.isEmpty || (!_editingView && items.every((i) => i.quantity == 0)))
-                ? Center(child: Text(items.isEmpty ? 'No items yet — add one!' : 'No items to shop for'))
+            (items.isEmpty ||
+                    (!_editingView && items.every((i) => i.quantity == 0)))
+                ? Center(
+                    child: Text(items.isEmpty
+                        ? 'No items yet — add one!'
+                        : 'No items to shop for'))
                 : _buildList(),
             Positioned(
               left: 16,
@@ -395,7 +370,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   onPressed: (index) => _toggleView(index == 0),
                   borderRadius: BorderRadius.circular(28),
                   renderBorder: false,
-                  constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+                  constraints:
+                      const BoxConstraints(minWidth: 56, minHeight: 56),
                   children: const [
                     Icon(Icons.edit, semanticLabel: 'Edit mode'),
                     Icon(Icons.shopping_cart, semanticLabel: 'Shopping mode'),
@@ -414,7 +390,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                   child: Center(
                     child: Text(
                       'Last updated ${_formatLastUpdated(model.activeList!.lastUpdated!)}',
-                      style: const TextStyle(color: Colors.black38, fontSize: 11),
+                      style:
+                          const TextStyle(color: Colors.black38, fontSize: 11),
                     ),
                   ),
                 ),
@@ -453,12 +430,14 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                           ScaffoldMessenger.of(context).hideCurrentSnackBar();
                           // Capture the model before the async gap (Navigator.push await).
                           final m = context.read<ShoppingItemListNotifier>();
-                          final name = await Navigator.of(context).push<String?>(
+                          final name =
+                              await Navigator.of(context).push<String?>(
                             MaterialPageRoute(
                                 builder: (_) => const AddItemScreen()),
                           );
                           if (name != null && name.isNotEmpty) {
                             await m.add(name);
+                            if (!mounted) return;
                             final newItem = m.items.last;
                             setState(() {
                               _isPlacingNewItem = true;
@@ -466,18 +445,22 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
                             });
                             // Only move to middle when the list overflows the screen.
                             // Check after the frame so the scroll extent is up to date.
-                            WidgetsBinding.instance.addPostFrameCallback((_) async {
+                            WidgetsBinding.instance
+                                .addPostFrameCallback((_) async {
                               if (!mounted) return;
                               final overflows = _scrollController.hasClients &&
-                                  _scrollController.position.maxScrollExtent > 0;
+                                  _scrollController.position.maxScrollExtent >
+                                      0;
                               if (overflows) {
                                 // context.read is safe here — addPostFrameCallback
                                 // runs synchronously within the same frame boundary.
-                                final notifier = context.read<ShoppingItemListNotifier>();
+                                final notifier =
+                                    context.read<ShoppingItemListNotifier>();
                                 final currentIndex = notifier.items.length - 1;
                                 final middleIndex = notifier.items.length ~/ 2;
                                 if (currentIndex != middleIndex) {
-                                  await notifier.reorder(currentIndex, middleIndex);
+                                  await notifier.reorder(
+                                      currentIndex, middleIndex);
                                 }
                               }
                             });
@@ -509,7 +492,6 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     );
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Paints the strikethrough brush-stroke image using BlendMode.multiply so
@@ -622,8 +604,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
   }
 
   void _animateTo(double target, {VoidCallback? onComplete}) {
-    _fingerAnim = Tween<double>(begin: _fingerFrac, end: target)
-        .animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _fingerAnim = Tween<double>(begin: _fingerFrac, end: target).animate(
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward(from: 0.0).then((_) {
       if (mounted) {
         setState(() => _fingerFrac = target);
@@ -672,7 +654,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
       child: AnimatedBuilder(
         animation: _animController,
         builder: (context, _) {
-          final frac = _animController.isAnimating ? _fingerAnim.value : _fingerFrac;
+          final frac =
+              _animController.isAnimating ? _fingerAnim.value : _fingerFrac;
           final isBought = widget.item.bought;
           // Drawing (not bought): line reveals right-to-left → clip [frac, 1.0]
           //   frac=1.0 → empty, frac=0.0 → full line
@@ -702,7 +685,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                       final showUnit = widget.item.unit != 'qty';
                       return Container(
                         constraints: const BoxConstraints(minWidth: 30),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
@@ -718,7 +702,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w600,
-                                      color: isBought ? Colors.black38 : primary,
+                                      color:
+                                          isBought ? Colors.black38 : primary,
                                     ),
                                   ),
                                   Text(
@@ -727,7 +712,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w500,
-                                      color: isBought ? Colors.black38 : primary,
+                                      color:
+                                          isBought ? Colors.black38 : primary,
                                     ),
                                   ),
                                 ],
@@ -756,7 +742,8 @@ class _ShoppingModeItemState extends State<_ShoppingModeItem>
                   child: ClipRect(
                     clipper: _TwoEdgeClipper(left: clipLeft, right: clipRight),
                     child: CustomPaint(
-                      painter: _StrikethroughPainter(widget.strikethroughImage!),
+                      painter:
+                          _StrikethroughPainter(widget.strikethroughImage!),
                     ),
                   ),
                 ),
@@ -837,7 +824,8 @@ class _ItemQuantityCounter extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _CounterBtn(icon: Icons.remove, onTap: quantity > 0 ? onDecrement : null),
+        _CounterBtn(
+            icon: Icons.remove, onTap: quantity > 0 ? onDecrement : null),
         // GestureDetector wraps the badge so long-press opens the unit picker.
         GestureDetector(
           onLongPress: () => _showUnitPicker(context),
@@ -969,8 +957,8 @@ class _CompletionOverlayState extends State<_CompletionOverlay>
     _opacity = TweenSequence<double>([
       TweenSequenceItem(tween: ConstantTween(1.0), weight: 60),
       TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 0.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
+        tween:
+            Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)),
         weight: 40,
       ),
     ]).animate(_ctrl);

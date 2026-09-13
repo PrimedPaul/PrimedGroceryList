@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../models/theme_notifier.dart';
-import '../services/completion_service.dart';
 import '../services/tutorial_service.dart';
-import 'tutorial_sheet.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,21 +14,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Holds the AI re-ordering preference loaded from SharedPreferences.
-  // Starts false until _loadAiReorderPreference() completes.
-  bool _aiReorderEnabled = false;
+  late final Future<PackageInfo> _packageInfo;
 
   @override
   void initState() {
     super.initState();
-    _loadAiReorderPreference();
-  }
-
-  // Loads the saved preference asynchronously and rebuilds when it arrives.
-  Future<void> _loadAiReorderPreference() async {
-    final enabled = await CompletionService.getAiReorderEnabled();
-    // Guard against the widget being disposed while we awaited.
-    if (mounted) setState(() => _aiReorderEnabled = enabled);
+    _packageInfo = PackageInfo.fromPlatform();
   }
 
   // Helper that renders a muted section header above a group of tiles.
@@ -96,51 +86,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () async {
               await TutorialService.reset();
               if (context.mounted) {
-                // Close settings so the tutorial appears over HomeScreen.
-                Navigator.of(context).pop();
-                await showTutorialSheet(context);
+                Navigator.of(context).pop(true);
               }
             },
-          ),
-
-          // ── Shopping ──────────────────────────────────────────────────
-          _sectionHeader(context, 'Shopping'),
-          // Toggle for AI-powered list re-ordering after each shopping trip.
-          SwitchListTile(
-            secondary: const Icon(Icons.auto_fix_high_outlined),
-            title: const Text('AI Re-ordering'),
-            subtitle: const Text(
-              'Automatically re-order your list after each shopping trip',
-            ),
-            value: _aiReorderEnabled,
-            onChanged: (value) async {
-              // Update UI immediately, then persist the preference.
-              setState(() => _aiReorderEnabled = value);
-              await CompletionService.setAiReorderEnabled(value);
-            },
-          ),
-          // Info tile that explains what AI re-ordering does.
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('About AI Re-ordering'),
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('AI Re-ordering'),
-                content: const Text(
-                  'When enabled, Primed will automatically re-order your shopping list '
-                  'based on your shopping patterns — putting frequently bought-together '
-                  'items near each other.\n\n'
-                  'This feature is coming soon!',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('Got it'),
-                  ),
-                ],
-              ),
-            ),
           ),
 
           // ── Support ─────────────────────────────────────────────────────
@@ -154,10 +102,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── About ───────────────────────────────────────────────────────
           _sectionHeader(context, 'About'),
-          const ListTile(
-            title: Text('Version'),
-            subtitle: Text('0.1.0'),
-            // No action needed — purely informational.
+          FutureBuilder<PackageInfo>(
+            future: _packageInfo,
+            builder: (context, snapshot) => ListTile(
+              title: const Text('Version'),
+              subtitle: Text(
+                snapshot.hasData
+                    ? '${snapshot.data!.version}+${snapshot.data!.buildNumber}'
+                    : 'Loading...',
+              ),
+            ),
           ),
         ],
       ),
@@ -183,7 +137,8 @@ class _ThemePickerScreen extends StatelessWidget {
             title: Text(option.label),
             // Show a checkmark next to the currently selected colour.
             trailing: isSelected
-                ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                ? Icon(Icons.check,
+                    color: Theme.of(context).colorScheme.primary)
                 : null,
             onTap: () => context.read<ThemeNotifier>().setColor(option.color),
           );

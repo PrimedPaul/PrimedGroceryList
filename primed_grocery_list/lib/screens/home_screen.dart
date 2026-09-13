@@ -73,9 +73,14 @@ class _HomeScreenState extends State<HomeScreen> {
               child: IconButton(
                 icon: const Icon(Icons.settings_outlined, color: Colors.white),
                 tooltip: 'Settings',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                ),
+                onPressed: () async {
+                  final showTutorial = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  );
+                  if (showTutorial == true && context.mounted) {
+                    await showTutorialSheet(context);
+                  }
+                },
               ),
             ),
           ),
@@ -124,49 +129,51 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Spacer(flex: 1),
                 Center(
                   child: IntrinsicWidth(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.create),
-                        label: const Text('Create New List'),
-                        style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 16)),
-                        onPressed: () async {
-                          final name = await Navigator.of(context).push<String?>(
-                            MaterialPageRoute(
-                                builder: (_) => const ShoppingListNameScreen()),
-                          );
-                          if (name != null && context.mounted) {
-                            // Use context.read inside a callback — we don't
-                            // want to subscribe, just perform an action.
-                            model.createNewList(name);
-                            await model.save();
-                            if (context.mounted) {
-                              Navigator.of(context).push(MaterialPageRoute(
-                                builder: (_) => const ShoppingListScreen(),
-                              ));
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.create),
+                          label: const Text('Create New List'),
+                          style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 16)),
+                          onPressed: () async {
+                            final name =
+                                await Navigator.of(context).push<String?>(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ShoppingListNameScreen()),
+                            );
+                            if (name != null && context.mounted) {
+                              // Use context.read inside a callback — we don't
+                              // want to subscribe, just perform an action.
+                              model.createNewList(name);
+                              await model.save();
+                              if (context.mounted) {
+                                Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) => const ShoppingListScreen(),
+                                ));
+                              }
                             }
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.open_in_new),
-                        label: const Text('Open Shopping List'),
-                        style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 14)),
-                        onPressed: () {
-                          Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => const OpenShoppingListScreen(),
-                          ));
-                        },
-                      ),
-                    ],
-                  ),
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.open_in_new),
+                          label: const Text('Open Shopping List'),
+                          style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 14)),
+                          onPressed: () {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => const OpenShoppingListScreen(),
+                            ));
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 // Bottom section: subtle coffee button pinned to the bottom.
@@ -174,30 +181,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 // allows the inner Spacer to push the button to the bottom.
                 Expanded(
                   child: Column(
-                  children: [
-                    const Spacer(),
-                    TextButton.icon(
-                      icon: const Icon(
-                        Icons.coffee_outlined,
-                        color: Colors.white70,
-                        size: 16,
+                    children: [
+                      const Spacer(),
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.coffee_outlined,
+                          color: Colors.white70,
+                          size: 16,
+                        ),
+                        label: const Text(
+                          'Buy Me a Coffee',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                        onPressed: () async {
+                          final uri = Uri.parse(AppConfig.kBuyMeCoffeeUrl);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          }
+                        },
                       ),
-                      label: const Text(
-                        'Buy Me a Coffee',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      onPressed: () async {
-                        final uri = Uri.parse(AppConfig.kBuyMeCoffeeUrl);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(
-                            uri,
-                            mode: LaunchMode.externalApplication,
-                          );
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                  ],
+                      const SizedBox(height: 8),
+                    ],
                   ),
                 ),
               ],

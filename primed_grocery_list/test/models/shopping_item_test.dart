@@ -24,7 +24,8 @@ void main() {
     });
 
     test('provided values are stored correctly', () {
-      final item = ShoppingItem(id: 'abc', name: 'Eggs', bought: true, quantity: 6);
+      final item =
+          ShoppingItem(id: 'abc', name: 'Eggs', bought: true, quantity: 6);
       expect(item.id, 'abc');
       expect(item.name, 'Eggs');
       expect(item.bought, isTrue);
@@ -37,7 +38,13 @@ void main() {
   // ---------------------------------------------------------------------------
   group('ShoppingItem — toJson / fromJson', () {
     test('round-trip preserves all fields', () {
-      final original = ShoppingItem(id: 'x1', name: 'Bread', bought: true, quantity: 3);
+      final original = ShoppingItem(
+        id: 'x1',
+        name: 'Bread',
+        bought: true,
+        quantity: 3,
+        unit: 'kg',
+      );
       final json = original.toJson();
       final restored = ShoppingItem.fromJson(json);
 
@@ -45,6 +52,7 @@ void main() {
       expect(restored.name, equals(original.name));
       expect(restored.bought, equals(original.bought));
       expect(restored.quantity, equals(original.quantity));
+      expect(restored.unit, equals(original.unit));
     });
 
     test('fromJson uses default bought=false when key is absent', () {
@@ -58,6 +66,17 @@ void main() {
       final json = {'id': 'y2', 'name': 'Cheese', 'bought': false};
       final item = ShoppingItem.fromJson(json);
       expect(item.quantity, equals(1));
+    });
+
+    test('fromJson uses default unit=qty when key is absent', () {
+      final json = {
+        'id': 'y3',
+        'name': 'Flour',
+        'bought': false,
+        'quantity': 1
+      };
+      final item = ShoppingItem.fromJson(json);
+      expect(item.unit, equals('qty'));
     });
   });
 

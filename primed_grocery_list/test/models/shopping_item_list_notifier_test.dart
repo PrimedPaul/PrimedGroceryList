@@ -68,7 +68,8 @@ void main() {
       expect(notifier.activeListId, isNull);
     });
 
-    test('activeList switches to first remaining list when active is deleted', () async {
+    test('activeList switches to first remaining list when active is deleted',
+        () async {
       final notifier = ShoppingItemListNotifier();
       final a = notifier.createNewList('A');
       notifier.createNewList('B'); // active becomes B
@@ -227,6 +228,26 @@ void main() {
 
       await notifier.updateQuantity(itemId, 5000);
       expect(notifier.items.first.quantity, 999);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // updateUnit
+  // ---------------------------------------------------------------------------
+  group('updateUnit', () {
+    test('updates, persists, and timestamps an item unit', () async {
+      final notifier = await notifierWithList();
+      final itemId = notifier.items.first.id;
+      notifier.activeList!.lastUpdated = null;
+
+      await notifier.updateUnit(itemId, 'kg');
+
+      expect(notifier.items.first.unit, equals('kg'));
+      expect(notifier.activeList?.lastUpdated, isNotNull);
+
+      final reloaded = ShoppingItemListNotifier();
+      await reloaded.load();
+      expect(reloaded.items.first.unit, equals('kg'));
     });
   });
 
