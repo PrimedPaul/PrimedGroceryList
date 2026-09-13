@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +9,7 @@ import 'shopping_list_screen.dart';
 import 'open_shopping_list_screen.dart';
 import 'name_shopping_list_screen.dart';
 import 'settings_screen.dart';
+import '../services/link_launcher.dart';
 import '../services/tutorial_service.dart';
 import 'tutorial_sheet.dart';
 
@@ -193,15 +193,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Buy Me a Coffee',
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
-                        onPressed: () async {
-                          final uri = Uri.parse(AppConfig.kBuyMeCoffeeUrl);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(
-                              uri,
-                              mode: LaunchMode.externalApplication,
-                            );
-                          }
-                        },
+                        onPressed: () => openExternalLink(
+                            context, AppConfig.kBuyMeCoffeeUrl),
                       ),
                       const SizedBox(height: 8),
                     ],

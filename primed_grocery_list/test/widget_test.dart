@@ -16,6 +16,7 @@ import 'package:primed_grocery_list/app_theme.dart';
 import 'package:primed_grocery_list/models/shopping_item_list_model.dart';
 import 'package:primed_grocery_list/models/theme_notifier.dart';
 import 'package:primed_grocery_list/screens/home_screen.dart';
+import 'package:primed_grocery_list/screens/open_shopping_list_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Helper — builds the standard app wrapper used by every test in this file.
@@ -27,7 +28,8 @@ import 'package:primed_grocery_list/screens/home_screen.dart';
 Widget _buildApp(ShoppingItemListNotifier groceryModel) {
   return MultiProvider(
     providers: [
-      ChangeNotifierProvider<ShoppingItemListNotifier>.value(value: groceryModel),
+      ChangeNotifierProvider<ShoppingItemListNotifier>.value(
+          value: groceryModel),
       // ThemeNotifier starts with its default colour — no need to load prefs.
       ChangeNotifierProvider<ThemeNotifier>(create: (_) => ThemeNotifier()),
     ],
@@ -48,7 +50,8 @@ void main() {
   // ---------------------------------------------------------------------------
   // Smoke test
   // ---------------------------------------------------------------------------
-  testWidgets('App smoke test — home screen renders', (WidgetTester tester) async {
+  testWidgets('App smoke test — home screen renders',
+      (WidgetTester tester) async {
     final model = ShoppingItemListNotifier();
 
     await tester.pumpWidget(_buildApp(model));
@@ -97,5 +100,38 @@ void main() {
 
     // OpenShoppingListScreen uses 'Your Shopping Lists' as its AppBar title.
     expect(find.text('Your Shopping Lists'), findsOneWidget);
+  });
+
+  // ---------------------------------------------------------------------------
+  // "Show Tutorial Again" from the list-of-lists screen opens the tutorial
+  // ---------------------------------------------------------------------------
+  testWidgets(
+      'Settings "Show Tutorial Again" opens the tutorial from the lists screen',
+      (WidgetTester tester) async {
+    final model = ShoppingItemListNotifier();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ShoppingItemListNotifier>.value(value: model),
+          ChangeNotifierProvider<ThemeNotifier>(create: (_) => ThemeNotifier()),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.theme,
+          home: const OpenShoppingListScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Show Tutorial Again'), findsOneWidget);
+
+    await tester.tap(find.text('Show Tutorial Again'));
+    await tester.pumpAndSettle();
+
+    // The tutorial sheet's first page should now be visible.
+    expect(find.text('Welcome to Primed Grocery!'), findsOneWidget);
   });
 }

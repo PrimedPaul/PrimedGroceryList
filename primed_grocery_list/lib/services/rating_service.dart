@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:in_app_review/in_app_review.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Tracks how many times the user has entered shopping mode and
@@ -31,7 +30,8 @@ class RatingService {
     return count >= nextPrompt;
   }
 
-  /// Call when the user taps "Rate Now".
+  /// Call when the user taps "Rate Now". Rating is terminal: once the native
+  /// flow has been attempted the user is not prompted again.
   static Future<void> requestReview() async {
     if (!isSupportedPlatform) return;
     final inAppReview = InAppReview.instance;
@@ -41,8 +41,11 @@ class RatingService {
       } else {
         await inAppReview.openStoreListing();
       }
-    } on MissingPluginException {
-      return;
+    } catch (error) {
+      // Plugin missing or store listing unavailable; never surface to the user.
+      debugPrint('In-app review failed: $error');
+    } finally {
+      await declineForever();
     }
   }
 

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../models/theme_notifier.dart';
+import '../services/link_launcher.dart';
 import '../services/tutorial_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -39,25 +39,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Opens the Buy Me a Coffee URL in the device's default browser.
-  // Falls back to a SnackBar if the URL cannot be launched.
-  Future<void> _launchCoffeeUrl(BuildContext context) async {
-    final uri = Uri.parse(AppConfig.kBuyMeCoffeeUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      // context.mounted guards against using a stale context after the await.
-      if (context.mounted) {
-        _showSnackBar(context, 'Could not open link');
-      }
-    }
-  }
-
-  // Shows a short SnackBar message using the nearest Scaffold messenger.
-  void _showSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
+  Future<void> _launchCoffeeUrl(BuildContext context) =>
+      openExternalLink(context, AppConfig.kBuyMeCoffeeUrl);
 
   @override
   Widget build(BuildContext context) {

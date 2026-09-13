@@ -16,7 +16,9 @@
 - The alpha persistence contract uses the `shopping_lists_v1` key. Do not change it for routine features or refactors; a future schema version requires an explicit migration.
 - `ShoppingItem.unit` defaults to `qty` so older saved items continue to load. Preserve that fallback when changing serialization.
 - Keep async widget code lifecycle-safe: use `mounted` or `context.mounted` after an `await`, and defer dialogs or bottom sheets started during `initState` with `WidgetsBinding.instance.addPostFrameCallback`.
-- The rating flow is Android/iOS-only: count explicit completed shopping trips, defer "Maybe Later" by three more completions, and keep unsupported platforms free of native-review calls.
+- The rating flow is Android/iOS-only: count explicit completed shopping trips, defer "Maybe Later" (and sheet dismissal) by three more completions, treat "Rate Now" as terminal by setting the declined flag, and keep unsupported platforms free of native-review calls. `requestReview` must never throw to the UI.
+- Open external URLs through `openExternalLink` in `lib/services/link_launcher.dart`. Do not add `canLaunchUrl` preflights; on Android 11+ they return false without a matching manifest `<queries>` entry.
+- `SettingsScreen` pops with `true` when "Show Tutorial Again" is tapped; every caller that pushes it must await the result and call `showTutorialSheet` when `true`.
 - Display the installed app version through `package_info_plus`; do not hard-code release versions in widgets.
 - Prefer small, readable widgets and targeted rebuilds. Dispose timers, controllers, and other owned resources.
 - Add or update tests with behavior changes. Keep model/notifier tests in [`test/models/`](../primed_grocery_list/test/models/), service tests in [`test/services/`](../primed_grocery_list/test/services/), and widget coverage in [`test/widget_test.dart`](../primed_grocery_list/test/widget_test.dart). Reset `SharedPreferences` with `setMockInitialValues({})` in tests.

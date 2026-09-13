@@ -65,8 +65,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   }
 
   /// Shows a bottom sheet asking the user to rate the app.
-  void _showRatingPrompt() {
-    showModalBottomSheet(
+  Future<void> _showRatingPrompt() async {
+    final choice = await showModalBottomSheet<_RatingChoice>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -93,24 +93,16 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               runSpacing: 8,
               children: [
                 TextButton(
-                  onPressed: () async {
-                    Navigator.of(ctx).pop();
-                    await RatingService.declineForever();
-                  },
+                  onPressed: () =>
+                      Navigator.of(ctx).pop(_RatingChoice.declineForever),
                   child: const Text("Don't Ask Again"),
                 ),
                 TextButton(
-                  onPressed: () async {
-                    Navigator.of(ctx).pop();
-                    await RatingService.deferReview();
-                  },
+                  onPressed: () => Navigator.of(ctx).pop(_RatingChoice.later),
                   child: const Text('Maybe Later'),
                 ),
                 ElevatedButton(
-                  onPressed: () async {
-                    Navigator.of(ctx).pop();
-                    await RatingService.requestReview();
-                  },
+                  onPressed: () => Navigator.of(ctx).pop(_RatingChoice.rateNow),
                   child: const Text('Rate Now ⭐'),
                 ),
               ],
@@ -120,6 +112,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         ),
       ),
     );
+    // Swiping the sheet away or pressing back counts as "Maybe Later".
+    switch (choice ?? _RatingChoice.later) {
+      case _RatingChoice.rateNow:
+        await RatingService.requestReview();
+      case _RatingChoice.later:
+        await RatingService.deferReview();
+      case _RatingChoice.declineForever:
+        await RatingService.declineForever();
+    }
   }
 
   /// Resets all bought flags without exiting shopping mode.
@@ -1103,3 +1104,5 @@ class _AddItemScreenState extends State<AddItemScreen> {
     );
   }
 }
+
+enum _RatingChoice { rateNow, later, declineForever }

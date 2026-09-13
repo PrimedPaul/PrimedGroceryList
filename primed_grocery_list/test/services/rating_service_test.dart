@@ -29,4 +29,19 @@ void main() {
     await RatingService.declineForever();
     expect(await RatingService.recordCompletedShoppingSession(), isFalse);
   });
+
+  test('Rate Now suppresses future prompts even when the plugin is missing',
+      () async {
+    for (var i = 0; i < 3; i++) {
+      await RatingService.recordCompletedShoppingSession();
+    }
+
+    // No platform handler is registered in tests, so this exercises the
+    // MissingPluginException path.
+    await RatingService.requestReview();
+
+    for (var i = 0; i < 5; i++) {
+      expect(await RatingService.recordCompletedShoppingSession(), isFalse);
+    }
+  });
 }

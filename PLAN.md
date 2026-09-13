@@ -67,19 +67,19 @@ In Settings → Appearance:
 
 ### ✅ 7. Buy Me a Coffee Button ☕
 - Button on Home Screen (bottom) and in Settings → Support
-- Opens buymeacoffee.com URL via `url_launcher`
+- Opens buymeacoffee.com URL via `openExternalLink` (`lib/services/link_launcher.dart`), which wraps `url_launcher` without a `canLaunchUrl` preflight and shows a SnackBar on failure
 - Single config constant in `lib/config.dart` — **update `AppConfig.kBuyMeCoffeeUrl` with your username**
 
 ### ✅ 8. Feedback / App Rating Prompt
 - After 3 completed shopping trips on Android/iOS, show bottom sheet: *"Enjoying Primed Grocery? ⭐"*
 - Options: "Rate Now" (native `in_app_review`) · "Maybe Later" · "Don't Ask Again"
-- "Maybe Later" defers the next prompt for 3 additional completed trips; "Don't Ask Again" suppresses all future prompts
+- "Maybe Later" (or dismissing the sheet) defers the next prompt for 3 additional completed trips; "Rate Now" and "Don't Ask Again" both suppress all future prompts
 - Track state in `shared_preferences` (`shopping_sessions_count`, `rating_declined`, `rating_next_prompt_session`)
 
 ### ✅ 9. Application Tutorial (First Use)
 - Guided 6-page `PageView` bottom sheet on first launch
 - Steps: Welcome → Create list → Add items → Edit mode → Shopping mode → Done
-- **Settings → "Show Tutorial Again"** resets the flag and shows immediately
+- **Settings → "Show Tutorial Again"** resets the flag and shows immediately from every caller (Home, lists, and shopping list screens)
 
 ---
 

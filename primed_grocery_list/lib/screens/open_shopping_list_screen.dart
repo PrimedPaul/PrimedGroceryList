@@ -4,6 +4,7 @@ import '../models/shopping_item_list_model.dart';
 import 'shopping_list_screen.dart';
 import 'name_shopping_list_screen.dart';
 import 'settings_screen.dart';
+import 'tutorial_sheet.dart';
 
 // OpenShoppingListScreen is now a StatelessWidget.
 // context.watch() in build() replaces the old addListener/removeListener
@@ -25,9 +26,14 @@ class OpenShoppingListScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
+            onPressed: () async {
+              final showTutorial = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+              if (showTutorial == true && context.mounted) {
+                await showTutorialSheet(context);
+              }
+            },
           ),
         ],
       ),
@@ -74,10 +80,13 @@ class OpenShoppingListScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final list = lists[index];
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: ListTile(
-                    title: Text(list.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${list.items.length} item${list.items.length != 1 ? 's' : ''}'),
+                    title: Text(list.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(
+                        '${list.items.length} item${list.items.length != 1 ? 's' : ''}'),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete),
                       onPressed: () async {
@@ -85,7 +94,8 @@ class OpenShoppingListScreen extends StatelessWidget {
                           context: context,
                           builder: (context) => AlertDialog(
                             title: const Text('Delete List?'),
-                            content: Text('Are you sure you want to delete "${list.name}"?'),
+                            content: Text(
+                                'Are you sure you want to delete "${list.name}"?'),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(context, false),
@@ -99,12 +109,16 @@ class OpenShoppingListScreen extends StatelessWidget {
                           ),
                         );
                         if (confirm == true && context.mounted) {
-                          await context.read<ShoppingItemListNotifier>().deleteList(list.id);
+                          await context
+                              .read<ShoppingItemListNotifier>()
+                              .deleteList(list.id);
                         }
                       },
                     ),
                     onTap: () async {
-                      await context.read<ShoppingItemListNotifier>().setActiveList(list.id);
+                      await context
+                          .read<ShoppingItemListNotifier>()
+                          .setActiveList(list.id);
                       if (context.mounted) {
                         Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const ShoppingListScreen(),
